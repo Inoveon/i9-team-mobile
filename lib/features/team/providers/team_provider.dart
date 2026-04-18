@@ -110,6 +110,6 @@ class TeamNotifier extends AutoDisposeFamilyAsyncNotifier<TeamDetailModel, Strin
 }
 
 final teamNotifierProvider =
-    AutoDisposeFamilyAsyncNotifierProvider<TeamNotifier, TeamDetailModel, String>(
+    AsyncNotifierProvider.autoDispose.family<TeamNotifier, TeamDetailModel, String>(
   TeamNotifier.new,
 );
