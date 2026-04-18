@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../shared/widgets/glass_container.dart';
@@ -20,21 +22,66 @@ class AgentPanel extends StatefulWidget {
 
 class _AgentPanelState extends State<AgentPanel> {
   final _scrollController = ScrollController();
+  Timer? _pollTimer;
+  List<String> _outputLines = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _outputLines = List.from(widget.agent.outputLines);
+    if (widget.agent.sessionName != null && widget.agent.sessionName!.isNotEmpty) {
+      _startPolling();
+    }
+  }
 
   @override
   void didUpdateWidget(AgentPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.agent.outputLines != oldWidget.agent.outputLines) {
+    // Reiniciar polling se agente mudou
+    if (widget.agent.id != oldWidget.agent.id) {
+      _pollTimer?.cancel();
+      _outputLines = List.from(widget.agent.outputLines);
+      if (widget.agent.sessionName != null && widget.agent.sessionName!.isNotEmpty) {
+        _startPolling();
+      }
+    }
+  }
+
+  void _startPolling() {
+    _fetchOutput(); // busca imediatamente
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _fetchOutput());
+  }
+
+  Future<void> _fetchOutput() async {
+    final session = widget.agent.sessionName;
+    if (session == null || session.isEmpty) return;
+    try {
+      final dio = await ApiClient.getInstance();
+      final response = await dio.get('/tmux/capture/$session', queryParameters: {'lines': '80'});
+      final raw = (response.data as Map?)?['output'] as String? ?? '';
+      if (raw.isEmpty) return;
+      final lines = raw
+          .split('\n')
+          .where((l) => l.isNotEmpty)
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _outputLines = lines;
+      });
+      // Auto-scroll para o final
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.hasClients) {
           _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
         }
       });
+    } catch (_) {
+      // silencia erros de rede
     }
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -48,6 +95,8 @@ class _AgentPanelState extends State<AgentPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final lines = _outputLines.isNotEmpty ? _outputLines : widget.agent.outputLines;
+
     return GlassContainer(
       margin: const EdgeInsets.all(8),
       child: Column(
@@ -74,20 +123,20 @@ class _AgentPanelState extends State<AgentPanel> {
           Stack(
             children: [
               Container(
-                height: widget.expanded ? 300 : 150,
+                height: widget.expanded ? 300 : 200,
                 decoration: BoxDecoration(
                   color: AppColors.bg,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: AppColors.border),
                 ),
-                child: widget.agent.outputLines.isEmpty
+                child: lines.isEmpty
                     ? Center(child: Text('Aguardando output...', style: AppTextStyles.bodyMuted))
                     : ListView.builder(
                         controller: _scrollController,
                         padding: const EdgeInsets.all(8),
-                        itemCount: widget.agent.outputLines.length,
+                        itemCount: lines.length,
                         itemBuilder: (ctx, i) => Text(
-                          widget.agent.outputLines[i],
+                          lines[i],
                           style: AppTextStyles.mono,
                         ),
                       ),

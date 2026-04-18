@@ -53,6 +53,13 @@ class RawWsClient {
     );
   }
 
+  /// Envia texto livre como input para o terminal (tmux send-keys).
+  static void sendInput(String session, String text) {
+    final channel = _channels[session];
+    if (channel == null) return;
+    channel.sink.add(jsonEncode({'type': 'input', 'keys': text}));
+  }
+
   /// Envia select_option para uma opção do menu.
   static void selectOption(String session, int index, {int currentIndex = 1}) {
     final channel = _channels[session];

@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/network/api_client.dart';
-import '../../../core/network/ws_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../shared/widgets/glass_button.dart';
-import '../../../shared/widgets/glass_container.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -16,29 +14,48 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  final _urlController = TextEditingController();
-  bool _saved = false;
+  late TextEditingController _urlController;
+  bool _isSaving = false;
+  String? _feedbackMessage;
 
   @override
   void initState() {
     super.initState();
-    _loadUrl();
+    _urlController = TextEditingController();
+    _loadCurrentUrl();
   }
 
-  Future<void> _loadUrl() async {
+  Future<void> _loadCurrentUrl() async {
     final url = await AppConfig.getBackendUrl();
-    _urlController.text = url;
+    if (mounted) _urlController.text = url;
   }
 
-  Future<void> _save() async {
+  Future<void> _saveUrl() async {
     final url = _urlController.text.trim();
-    if (url.isEmpty) return;
-    await AppConfig.setBackendUrl(url);
-    ApiClient.reset();
-    WsClient.disconnect();
-    setState(() => _saved = true);
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted) setState(() => _saved = false);
+    if (url.isEmpty) {
+      setState(() => _feedbackMessage = '❌ URL não pode estar vazia');
+      return;
+    }
+
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      setState(() => _feedbackMessage = '❌ URL deve começar com http:// ou https://');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      await AppConfig.setBackendUrl(url);
+      await AppConfig.clearJwt(); // força novo login com nova URL
+      ApiClient.reset();          // reseta instância do Dio
+      setState(() => _feedbackMessage = '✅ URL salva! Conectando...');
+      await Future.delayed(const Duration(seconds: 1));
+      if (mounted) context.go('/');
+    } catch (e) {
+      setState(() => _feedbackMessage = '❌ Erro ao salvar: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   @override
@@ -53,57 +70,70 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       backgroundColor: AppColors.bg,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
-        title: Text('Configuracoes', style: AppTextStyles.heading1),
+        title: Text('Configurações', style: AppTextStyles.heading1),
         iconTheme: const IconThemeData(color: AppColors.neonBlue),
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        child: GlassContainer(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('URL do Backend', style: AppTextStyles.heading2),
-              const SizedBox(height: 4),
-              Text('Ex: http://192.168.1.100:3100', style: AppTextStyles.bodyMuted),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _urlController,
-                style: AppTextStyles.body,
-                keyboardType: TextInputType.url,
-                decoration: InputDecoration(
-                  hintText: AppConfig.defaultUrl,
-                  hintStyle: AppTextStyles.bodyMuted,
-                  filled: true,
-                  fillColor: AppColors.bg,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppColors.neonBlue, width: 1.5),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('URL do Backend', style: AppTextStyles.heading2),
+            const SizedBox(height: 8),
+            Text('Configure o endereço do servidor backend.', style: AppTextStyles.bodyMuted),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _urlController,
+              enabled: !_isSaving,
+              style: AppTextStyles.body,
+              decoration: InputDecoration(
+                hintText: 'http://localhost:4020',
+                hintStyle: AppTextStyles.bodyMuted,
+                filled: true,
+                fillColor: AppColors.bg,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.border),
                 ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  GlassButton(
-                    label: _saved ? 'Salvo!' : 'Salvar',
-                    icon: _saved ? Icons.check : Icons.save_outlined,
-                    color: _saved ? AppColors.neonGreen : AppColors.neonBlue,
-                    onPressed: _save,
-                  ),
-                ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSaving ? null : _saveUrl,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.neonBlue,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: _isSaving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation(Colors.white),
+                        ),
+                      )
+                    : Text('Salvar', style: AppTextStyles.label.copyWith(color: Colors.white)),
+              ),
+            ),
+            if (_feedbackMessage != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _feedbackMessage!.startsWith('✅')
+                      ? AppColors.neonGreen.withOpacity(0.2)
+                      : Colors.red.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(_feedbackMessage!, style: AppTextStyles.body),
               ),
             ],
-          ),
+          ],
         ),
       ),
     );

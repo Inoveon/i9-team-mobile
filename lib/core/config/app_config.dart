@@ -1,16 +1,27 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AppConfig {
   AppConfig._();
 
-  static const _storage = FlutterSecureStorage();
+  // Android: resetOnError evita crash quando não há lockscreen configurado
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+      resetOnError: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+  );
   static const _keyBackendUrl = 'backend_url';
   static const defaultUrl = 'http://localhost:4020';
 
   // Credenciais padrão (espelham o .env do backend)
   static const defaultUser = 'admin';
-  static const defaultPass = 'i9team';
+  static const defaultPass = 'i9team2024';
 
   /// Garante que existe um JWT válido — faz login automático se necessário.
   static Future<String> ensureJwt() async {
@@ -39,23 +50,52 @@ class AppConfig {
   }
 
   static Future<String> getBackendUrl() async {
-    final url = await _storage.read(key: _keyBackendUrl);
-    return url ?? defaultUrl;
+    try {
+      final url = await _storage.read(key: _keyBackendUrl)
+          .timeout(const Duration(seconds: 3));
+      if (url != null && url.isNotEmpty) return url;
+    } catch (e) {
+      debugPrint('SecureStorage getBackendUrl error: $e');
+    }
+    // Fallback: SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_keyBackendUrl) ?? defaultUrl;
+    } catch (_) {}
+    return defaultUrl;
   }
 
   static Future<void> setBackendUrl(String url) async {
-    await _storage.write(key: _keyBackendUrl, value: url);
+    try {
+      await _storage.write(key: _keyBackendUrl, value: url);
+    } catch (e) {
+      debugPrint('SecureStorage setBackendUrl error: $e');
+    }
+    // Salva também em SharedPreferences como fallback
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyBackendUrl, url);
+    } catch (_) {}
   }
 
   static Future<String?> getJwt() async {
-    return _storage.read(key: 'jwt_token');
+    try {
+      return await _storage.read(key: 'jwt_token')
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<void> setJwt(String token) async {
-    await _storage.write(key: 'jwt_token', value: token);
+    try {
+      await _storage.write(key: 'jwt_token', value: token);
+    } catch (_) {}
   }
 
   static Future<void> clearJwt() async {
-    await _storage.delete(key: 'jwt_token');
+    try {
+      await _storage.delete(key: 'jwt_token');
+    } catch (_) {}
   }
 }

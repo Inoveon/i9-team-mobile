@@ -70,8 +70,39 @@ class TeamNotifier extends AutoDisposeFamilyAsyncNotifier<TeamDetailModel, Strin
 
   Future<TeamDetailModel> _fetchTeam(String id) async {
     final dio = await ApiClient.getInstance();
-    final response = await dio.get('/teams/$id');
-    return TeamDetailModel.fromJson(response.data as Map<String, dynamic>);
+
+    // Busca dados do team e status tmux em paralelo
+    final results = await Future.wait([
+      dio.get('/teams/$id'),
+      dio.get('/teams/$id/agents/status').catchError((_) => null),
+    ]);
+
+    final data = results[0]!.data as Map<String, dynamic>;
+    final teamJson = (data['team'] as Map<String, dynamic>?) ?? data;
+
+    // Monta mapa agentId → active (baseado em sessões tmux)
+    final statusMap = <String, bool>{};
+    final statusData = results[1]?.data;
+    if (statusData is Map) {
+      final agentsList = (statusData['agents'] as List?) ?? [];
+      for (final a in agentsList) {
+        final agentMap = a as Map;
+        final agentId = agentMap['id'] as String?;
+        final active = agentMap['active'] as bool? ?? false;
+        if (agentId != null) statusMap[agentId] = active;
+      }
+    }
+
+    final team = TeamDetailModel.fromJson(teamJson);
+
+    // Enriquecer agentes com status real do tmux
+    // Se statusMap estiver vazio (backend offline/sem tmux), mostrar active por padrão
+    final enrichedAgents = team.agents.map((agent) {
+      final isActive = statusMap.isEmpty ? true : (statusMap[agent.id] ?? false);
+      return agent.copyWith(status: isActive ? 'active' : 'offline');
+    }).toList();
+
+    return TeamDetailModel(id: team.id, name: team.name, agents: enrichedAgents);
   }
 
   void _connectWs(String id) async {
