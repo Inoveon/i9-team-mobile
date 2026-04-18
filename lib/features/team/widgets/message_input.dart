@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../upload/widgets/image_upload_widget.dart';
 
 class MessageInput extends StatefulWidget {
-  const MessageInput({super.key, required this.onSend});
+  const MessageInput({
+    super.key,
+    required this.onSend,
+    this.onImageUpload,
+    this.sessionName,
+  });
 
   final void Function(String message) onSend;
+  final OnUploadSuccess? onImageUpload;
+  final String? sessionName;
 
   @override
   State<MessageInput> createState() => _MessageInputState();

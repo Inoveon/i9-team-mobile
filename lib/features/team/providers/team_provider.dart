@@ -9,6 +9,7 @@ class AgentModel {
     required this.role,
     required this.status,
     required this.outputLines,
+    this.sessionName,
     this.isOrchestrator = false,
   });
 
@@ -17,6 +18,7 @@ class AgentModel {
   final String role;
   final String status;
   final List<String> outputLines;
+  final String? sessionName;
   final bool isOrchestrator;
 
   AgentModel copyWith({List<String>? outputLines, String? status}) => AgentModel(
@@ -25,15 +27,17 @@ class AgentModel {
         role: role,
         status: status ?? this.status,
         outputLines: outputLines ?? this.outputLines,
+        sessionName: sessionName,
         isOrchestrator: isOrchestrator,
       );
 
   factory AgentModel.fromJson(Map<String, dynamic> json) => AgentModel(
-        id: json['id'] as String,
-        name: json['name'] as String,
+        id: (json['id'] as String?) ?? 'unknown',
+        name: (json['name'] as String?) ?? 'Agent',
         role: (json['role'] as String?) ?? '',
         status: (json['status'] as String?) ?? 'offline',
         outputLines: List<String>.from((json['outputLines'] as List?) ?? []),
+        sessionName: (json['sessionName'] as String?) ?? '',
         isOrchestrator: (json['isOrchestrator'] as bool?) ?? false,
       );
 }
@@ -45,8 +49,8 @@ class TeamDetailModel {
   final List<AgentModel> agents;
 
   factory TeamDetailModel.fromJson(Map<String, dynamic> json) => TeamDetailModel(
-        id: json['id'] as String,
-        name: json['name'] as String,
+        id: (json['id'] as String?) ?? 'unknown',
+        name: (json['name'] as String?) ?? 'Team',
         agents: (json['agents'] as List? ?? [])
             .map((e) => AgentModel.fromJson(e as Map<String, dynamic>))
             .toList(),
@@ -66,7 +70,7 @@ class TeamNotifier extends AutoDisposeFamilyAsyncNotifier<TeamDetailModel, Strin
 
   Future<TeamDetailModel> _fetchTeam(String id) async {
     final dio = await ApiClient.getInstance();
-    final response = await dio.get('/api/teams/$id');
+    final response = await dio.get('/teams/$id');
     return TeamDetailModel.fromJson(response.data as Map<String, dynamic>);
   }
 

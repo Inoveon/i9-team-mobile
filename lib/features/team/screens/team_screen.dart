@@ -54,6 +54,12 @@ class TeamScreen extends ConsumerWidget {
               const Spacer(),
               MessageInput(
                 onSend: (msg) => ref.read(teamNotifierProvider(teamId).notifier).sendMessage(msg),
+                sessionName: orchestrator?.sessionName,
+                onImageUpload: (imageUrl) async {
+                  // Após upload bem-sucedido, envia mensagem com link da imagem
+                  final notifier = ref.read(teamNotifierProvider(teamId).notifier);
+                  await notifier.sendMessage('Imagem compartilhada: $imageUrl');
+                },
               ),
             ],
           );
