@@ -27,12 +27,18 @@ class MessageEvent {
 
   factory MessageEvent.fromJson(Map<String, dynamic> json) {
     final raw = (json['type'] as String?) ?? '';
-    final type = _parseType(raw);
+    final name = json['name'] as String?;
+    // Detecta Plan Mode pelo tool_call ExitPlanMode (Claude Code sinaliza
+    // entrada em Plan Mode chamando essa tool). O backend não emite evento
+    // dedicado — fazemos a detecção aqui no cliente.
+    final type = (raw == 'tool_call' && name == 'ExitPlanMode')
+        ? MessageEventType.planMode
+        : _parseType(raw);
 
     return MessageEvent(
       type: type,
       text: json['text'] as String?,
-      toolName: json['name'] as String?,
+      toolName: name,
       toolArgs: json['args'] as String?,
       toolId: json['id'] as String?,
       toolContent: json['content'] as String?,
@@ -40,6 +46,9 @@ class MessageEvent {
       menuOptions: _parseOptions(json['options']),
     );
   }
+
+  /// Retorna true se este evento indica que o agente entrou em Plan Mode.
+  bool get isPlanMode => type == MessageEventType.planMode;
 
   static MessageEventType _parseType(String raw) {
     switch (raw) {
@@ -57,6 +66,8 @@ class MessageEvent {
         return MessageEventType.system;
       case 'interactive_menu':
         return MessageEventType.interactiveMenu;
+      case 'plan_mode':
+        return MessageEventType.planMode;
       default:
         return MessageEventType.system;
     }
@@ -86,4 +97,6 @@ enum MessageEventType {
   thinking,
   system,
   interactiveMenu,
+  /// Agente entrou em Plan Mode (detectado via tool_call ExitPlanMode).
+  planMode,
 }
