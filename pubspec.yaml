@@ -21,6 +21,7 @@ dependencies:
   web_socket_channel: ^3.0.0
   image_picker: ^1.1.0
   pasteboard: ^0.2.0
+  flutter_markdown: ^0.7.0
 
 dev_dependencies:
   flutter_test:
