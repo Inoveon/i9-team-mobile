@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -11,10 +12,17 @@ import '../providers/menu_provider.dart';
 import './menu_overlay.dart';
 
 class AgentPanel extends StatefulWidget {
-  const AgentPanel({super.key, required this.agent, this.expanded = false});
+  const AgentPanel({
+    super.key,
+    required this.agent,
+    this.expanded = false,
+    this.teamId,
+  });
 
   final AgentModel agent;
   final bool expanded;
+  /// Quando fornecido, habilita navegação para AgentScreen ao tocar no header.
+  final String? teamId;
 
   @override
   State<AgentPanel> createState() => _AgentPanelState();
@@ -102,18 +110,28 @@ class _AgentPanelState extends State<AgentPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              if (widget.agent.isOrchestrator)
-                const Icon(Icons.hub_outlined, color: AppColors.neonPurple, size: 18)
-              else
-                const Icon(Icons.smart_toy_outlined, color: AppColors.neonBlue, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(widget.agent.name, style: AppTextStyles.heading2, overflow: TextOverflow.ellipsis),
-              ),
-              StatusBadge(status: _status),
-            ],
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: widget.teamId != null
+                ? () => context.push('/agent/${widget.teamId}/${widget.agent.id}')
+                : null,
+            child: Row(
+              children: [
+                if (widget.agent.isOrchestrator)
+                  const Icon(Icons.hub_outlined, color: AppColors.neonPurple, size: 18)
+                else
+                  const Icon(Icons.smart_toy_outlined, color: AppColors.neonBlue, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(widget.agent.name, style: AppTextStyles.heading2, overflow: TextOverflow.ellipsis),
+                ),
+                StatusBadge(status: _status),
+                if (widget.teamId != null) ...[
+                  const SizedBox(width: 6),
+                  const Icon(Icons.chevron_right, color: AppColors.neonBlue, size: 18),
+                ],
+              ],
+            ),
           ),
           if (widget.agent.role.isNotEmpty) ...[
             const SizedBox(height: 4),

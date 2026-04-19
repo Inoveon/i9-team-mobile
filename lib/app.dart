@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'core/theme/app_colors.dart';
+import 'features/agent/screens/agent_screen.dart';
 import 'features/home/screens/home_screen.dart';
 import 'features/settings/screens/settings_screen.dart';
 import 'features/team/screens/team_screen.dart';
@@ -20,6 +21,13 @@ class App extends StatelessWidget {
           path: '/team/:id',
           builder: (ctx, state) =>
               TeamScreen(teamId: state.pathParameters['id']!),
+        ),
+        GoRoute(
+          path: '/agent/:teamId/:agentId',
+          builder: (ctx, state) => AgentScreen(
+            teamId: state.pathParameters['teamId']!,
+            agentId: state.pathParameters['agentId']!,
+          ),
         ),
         GoRoute(path: '/settings', builder: (ctx, _) => const SettingsScreen()),
       ],

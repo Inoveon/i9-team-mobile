@@ -220,6 +220,7 @@ class TeamScreen extends ConsumerWidget {
                               key: ValueKey('terminal_${selectedAgent.id}'),
                               agent: selectedAgent,
                               expanded: true,
+                              teamId: teamId,
                             ),
                           ),
                           SafeArea(
