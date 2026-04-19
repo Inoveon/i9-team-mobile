@@ -12,10 +12,20 @@ class ApiService {
   static Future<List<TeamModel>> getTeams() async {
     final dio = await ApiClient.getInstance();
     final response = await dio.get('/teams');
-    final list = response.data as List;
-    return list
-        .map((e) => TeamModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final raw = response.data;
+    final list = (raw is Map ? raw['teams'] : raw) as List;
+    return list.map((e) {
+      final json = e as Map<String, dynamic>;
+      final agents = (json['agents'] as List?) ?? [];
+      return TeamModel(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        description: (json['description'] as String?) ?? '',
+        agentCount: agents.length,
+        activeAgents: 0,
+        status: (json['status'] as String?) ?? 'offline',
+      );
+    }).toList();
   }
 
   /// Retorna os detalhes de um team específico.

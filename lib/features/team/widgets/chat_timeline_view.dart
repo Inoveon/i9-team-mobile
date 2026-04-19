@@ -101,6 +101,10 @@ class _ChatTimelineViewState extends ConsumerState<ChatTimelineView> {
         // Já tratado acima
         case MessageEventType.toolResult:
           break;
+
+        // Plan Mode — exibido como badge informativo; PlanApprovalCard fica na AgentScreen
+        case MessageEventType.planMode:
+          widgets.add(SystemBadge(text: '📋 Agente aguardando aprovação do plano'));
       }
     }
 
