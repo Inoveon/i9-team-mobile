@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'core/theme/app_colors.dart';
+import 'features/config/screens/config_screen.dart';
 import 'features/home/screens/home_screen.dart';
 import 'features/settings/screens/settings_screen.dart';
 import 'features/team/screens/team_screen.dart';
+import 'shared/widgets/toast_stack.dart';
 
 class App extends StatelessWidget {
   const App({super.key, this.initialRoute = '/'});
@@ -18,10 +20,19 @@ class App extends StatelessWidget {
         GoRoute(path: '/', builder: (ctx, _) => const HomeScreen()),
         GoRoute(
           path: '/team/:id',
-          builder: (ctx, state) =>
-              TeamScreen(teamId: state.pathParameters['id']!),
+          builder: (ctx, state) => TeamScreen(
+            teamId: state.pathParameters['id']!,
+            initialTab: state.uri.queryParameters['tab'],
+            initialNote: state.uri.queryParameters['note'],
+          ),
+        ),
+        // Compatibilidade — rota antiga redireciona pra aba Notas da TeamScreen
+        GoRoute(
+          path: '/team/:id/notes',
+          redirect: (ctx, state) => '/team/${state.pathParameters['id']!}?tab=notes',
         ),
         GoRoute(path: '/settings', builder: (ctx, _) => const SettingsScreen()),
+        GoRoute(path: '/config', builder: (ctx, _) => const ConfigScreen()),
       ],
     );
 
@@ -43,6 +54,12 @@ class App extends StatelessWidget {
         useMaterial3: true,
       ),
       routerConfig: router,
+      builder: (context, child) => Stack(
+        children: [
+          child ?? const SizedBox.shrink(),
+          const ToastStack(),
+        ],
+      ),
     );
   }
 }

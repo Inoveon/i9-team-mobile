@@ -1,13 +1,15 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../shared/widgets/toast_stack.dart';
 import '../services/image_upload_service.dart';
 import '../models/upload_result.dart';
 
 typedef OnUploadSuccess = Future<void> Function(UploadResult result);
 
-class ImageUploadWidget extends StatefulWidget {
+class ImageUploadWidget extends ConsumerStatefulWidget {
   const ImageUploadWidget({
     super.key,
     required this.onUploadSuccess,
@@ -18,10 +20,10 @@ class ImageUploadWidget extends StatefulWidget {
   final void Function(String error)? onUploadError;
 
   @override
-  State<ImageUploadWidget> createState() => _ImageUploadWidgetState();
+  ConsumerState<ImageUploadWidget> createState() => _ImageUploadWidgetState();
 }
 
-class _ImageUploadWidgetState extends State<ImageUploadWidget> {
+class _ImageUploadWidgetState extends ConsumerState<ImageUploadWidget> {
   bool _isUploading = false;
   UploadResult? _lastUpload;
 
@@ -42,24 +44,14 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
         setState(() => _lastUpload = result);
         await widget.onUploadSuccess(result);
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Imagem enviada: ${result.filename}'),
-              backgroundColor: AppColors.neonGreen.withOpacity(0.8),
-            ),
-          );
-        }
+        ref
+            .read(toastProvider.notifier)
+            .success('Imagem enviada: ${result.filename}');
       } else {
-        if (mounted) {
-          widget.onUploadError?.call('Erro ao fazer upload da imagem');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Erro ao fazer upload da imagem'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        widget.onUploadError?.call('Erro ao fazer upload da imagem');
+        ref
+            .read(toastProvider.notifier)
+            .error('Erro ao fazer upload da imagem');
       }
     } finally {
       if (mounted) {
