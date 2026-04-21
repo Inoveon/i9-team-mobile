@@ -173,6 +173,35 @@ class _MessageInputState extends ConsumerState<MessageInput> {
 
   @override
   Widget build(BuildContext context) {
+    // Observa transições de estado para anúncios acessíveis + toasts.
+    ref.listen<List<PendingAttachment>>(
+      pendingAttachmentsProvider(widget.teamId),
+      (prev, next) {
+        if (prev == null) return;
+        // detecta itens que acabaram de concluir upload
+        for (final n in next) {
+          final p = prev.firstWhere(
+            (e) => e.clientId == n.clientId,
+            orElse: () => n,
+          );
+          if (!p.done && n.done) {
+            SemanticsService.announce(
+              'Imagem ${n.local.name} anexada',
+              TextDirection.ltr,
+            );
+          } else if (p.error == null && n.error != null) {
+            SemanticsService.announce(
+              'Falha ao anexar ${n.local.name}: ${n.error}',
+              TextDirection.ltr,
+            );
+            ref.read(toastProvider.notifier).error(
+                  'Falha no anexo "${n.local.name}": ${n.error}',
+                );
+          }
+        }
+      },
+    );
+
     final attachments = ref.watch(pendingAttachmentsProvider(widget.teamId));
     final canSend = _hasText ||
         attachments.any((a) => a.done); // permite enviar só com anexo
