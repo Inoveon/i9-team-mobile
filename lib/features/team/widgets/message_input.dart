@@ -12,30 +12,39 @@ import '../../../shared/widgets/toast_stack.dart';
 import '../../upload/models/pending_attachment.dart';
 import '../../upload/providers/pending_attachments_provider.dart';
 import '../../upload/services/image_upload_service.dart';
+import '../providers/optimistic_messages_provider.dart';
+import '../providers/team_provider.dart';
+import 'user_bubble.dart';
 
-/// Callback legado (Onda 4) — mantido para não quebrar TeamScreen. Será
-/// descontinuado na Parte 2 quando o payload aceitar `attachmentIds`.
-typedef OnUploadSuccess = Future<void> Function(dynamic _);
+/// Callback novo (Onda 5 Parte 2) — envio com anexos.
+/// Retorna [MessageSendResult] para o widget orquestrar toasts de 207.
+typedef OnSendWithAttachments = Future<MessageSendResult> Function(
+  String content,
+  List<String> attachmentIds,
+);
 
 class MessageInput extends ConsumerStatefulWidget {
   const MessageInput({
     super.key,
     required this.teamId,
     required this.onSend,
-    this.onImageUpload,
+    this.onSendWithAttachments,
     this.sessionName,
   });
 
   /// TeamId para isolar a lista de anexos pendentes.
   final String teamId;
 
-  /// Callback chamado ao enviar a mensagem. Texto puro por enquanto — a
-  /// Parte 2 passará também os IDs dos anexos remotos concluídos.
+  /// Callback simples — recebe só o texto. Usado como fallback quando
+  /// [onSendWithAttachments] não é fornecido.
   final void Function(String message) onSend;
 
-  /// Legado — preservado até Parte 2 remover o callback.
-  final OnUploadSuccess? onImageUpload;
+  /// Callback novo (preferencial) — envia texto + attachmentIds.
+  /// Quando presente, este callback é chamado no lugar de [onSend].
+  final OnSendWithAttachments? onSendWithAttachments;
 
+  /// Nome da sessão tmux do agente destinatário — usado para alimentar o
+  /// `optimisticMessagesProvider(session)` com a mensagem otimista.
   final String? sessionName;
 
   @override
@@ -78,16 +87,139 @@ class _MessageInputState extends ConsumerState<MessageInput> {
     super.dispose();
   }
 
-  void _send() {
+  /// Envia mensagem + anexos concluídos, com reconciliação otimista e toasts.
+  Future<void> _send() async {
     final msg = _controller.text.trim();
-    final hasPending =
-        ref.read(pendingAttachmentsProvider(widget.teamId)).isNotEmpty;
-    if (msg.isEmpty && !hasPending) return;
+    final pendingList = ref.read(pendingAttachmentsProvider(widget.teamId));
+    final ready = pendingList.where((a) => a.done).toList();
+    final stillUploading = pendingList.where((a) => a.uploading).toList();
 
-    widget.onSend(msg);
+    // Nada a enviar
+    if (msg.isEmpty && ready.isEmpty) return;
+
+    // Se ainda há uploads em andamento, avisa e aborta — evita mensagem
+    // "sem anexos" porque o user clicou rápido.
+    if (stillUploading.isNotEmpty) {
+      ref.read(toastProvider.notifier).warning(
+            'Aguardando ${stillUploading.length} anexo(s) finalizar(em) upload...',
+          );
+      return;
+    }
+
+    final attachmentIds = ready.map((a) => a.remote!.id).toList();
+    final optimisticThumbs = await _buildOptimisticThumbs(ready);
+
+    // Adiciona bolha otimista ao stream (se temos session do agente)
+    String? optimisticId;
+    if (widget.sessionName != null && widget.sessionName!.isNotEmpty) {
+      optimisticId = ref
+          .read(optimisticMessagesProvider(widget.sessionName!).notifier)
+          .add(
+            text: msg,
+            attachments: optimisticThumbs,
+          );
+    }
+
+    // Limpa o input imediatamente — sensação de responsividade
     _controller.clear();
-    // Parte 2 limpará os anexos ao confirmar envio completo;
-    // por ora, mantemos a lista até backend confirmar o contrato.
+
+    // Caminho com orquestração completa (callback novo)
+    if (widget.onSendWithAttachments != null) {
+      try {
+        final result = await widget.onSendWithAttachments!(msg, attachmentIds);
+
+        // Limpa lista de anexos pendentes só após sucesso
+        ref
+            .read(pendingAttachmentsProvider(widget.teamId).notifier)
+            .clear();
+
+        _handlePartialFailure(result, optimisticId);
+      } on MessageSendException catch (e) {
+        _handleSendError(e, optimisticId);
+      } catch (e) {
+        _handleSendError(
+          MessageSendException(message: 'Falha: $e', statusCode: null),
+          optimisticId,
+        );
+      }
+    } else {
+      // Fallback legado — sem attachmentIds
+      widget.onSend(msg);
+    }
+  }
+
+  /// Converte `PendingAttachment` em `BubbleAttachment` para render otimista.
+  /// Em Flutter Web, `XFile.path` é blob URL — por isso carregamos bytes.
+  Future<List<BubbleAttachment>> _buildOptimisticThumbs(
+    List<PendingAttachment> ready,
+  ) async {
+    final out = <BubbleAttachment>[];
+    for (final a in ready) {
+      if (kIsWeb) {
+        try {
+          final bytes = await a.local.readAsBytes();
+          out.add(BubbleAttachment(
+            localBytes: bytes,
+            remoteUrl: a.remote?.url,
+            filename: a.local.name,
+          ));
+        } catch (_) {
+          out.add(BubbleAttachment(
+            remoteUrl: a.remote?.url,
+            filename: a.local.name,
+          ));
+        }
+      } else {
+        out.add(BubbleAttachment(
+          localPath: a.local.path,
+          remoteUrl: a.remote?.url,
+          filename: a.local.name,
+        ));
+      }
+    }
+    return out;
+  }
+
+  void _handlePartialFailure(MessageSendResult result, String? optimisticId) {
+    if (!result.partial) return;
+    final rejected = result.rejected.length;
+    final total = result.accepted.length + rejected;
+    ref.read(toastProvider.notifier).warning(
+          '${result.accepted.length} de $total anexo(s) enviado(s). '
+          '$rejected rejeitado(s) pelo servidor.',
+        );
+    SemanticsService.announce(
+      'Envio parcial: ${result.accepted.length} de $total anexos aceitos.',
+      TextDirection.ltr,
+    );
+    if (optimisticId != null &&
+        widget.sessionName != null &&
+        result.rejected.isNotEmpty) {
+      final rejIds = result.rejected.map((r) => r.id).toSet();
+      ref
+          .read(optimisticMessagesProvider(widget.sessionName!).notifier)
+          .markRejected(optimisticId, rejIds);
+    }
+  }
+
+  void _handleSendError(MessageSendException e, String? optimisticId) {
+    ref.read(toastProvider.notifier).error(e.message);
+    SemanticsService.announce(
+      'Falha ao enviar mensagem: ${e.message}',
+      TextDirection.ltr,
+    );
+    // Remove bolha otimista para não ficar fantasma
+    if (optimisticId != null && widget.sessionName != null) {
+      final notifier =
+          ref.read(optimisticMessagesProvider(widget.sessionName!).notifier);
+      // Não há API pública de remove-por-id; usamos clearAll como fallback
+      // quando há só uma otimista pendente. Para múltiplas, TTL de 12s cobre.
+      final list =
+          ref.read(optimisticMessagesProvider(widget.sessionName!));
+      if (list.length == 1 && list.first.id == optimisticId) {
+        notifier.clearAll();
+      }
+    }
   }
 
   // ────────────────────── Pickers ──────────────────────
@@ -282,7 +414,7 @@ class _MessageInputState extends ConsumerState<MessageInput> {
                     label: 'Enviar mensagem',
                     enabled: canSend,
                     child: GestureDetector(
-                      onTap: canSend ? _send : null,
+                      onTap: canSend ? () => _send() : null,
                       child: Container(
                         width: _buttonSize,
                         height: _buttonSize,

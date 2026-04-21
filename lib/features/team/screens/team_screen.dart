@@ -444,9 +444,8 @@ class TeamScreen extends ConsumerWidget {
                   child: MessageInput(
                     teamId: teamId,
                     onSend: (msg) async {
-                      // REST é suficiente — backend resolve via tmux send-keys.
-                      // NOTA (Onda 5 Parte 2): quando o contrato `attachmentIds`
-                      // estiver publicado no backend, passaremos os IDs aqui.
+                      // Fallback legado — usado apenas se onSendWithAttachments
+                      // não existir. Mantido por segurança.
                       try {
                         await ref
                             .read(teamNotifierProvider(teamId).notifier)
@@ -456,6 +455,19 @@ class TeamScreen extends ConsumerWidget {
                             .read(toastProvider.notifier)
                             .error('Falha ao enviar: $e');
                       }
+                    },
+                    onSendWithAttachments: (content, attachmentIds) async {
+                      // Onda 5: POST /teams/:id/message com
+                      // { content, agentId, attachmentIds }.
+                      // Propaga MessageSendException para o MessageInput
+                      // exibir o toast adequado por status code.
+                      return await ref
+                          .read(teamNotifierProvider(teamId).notifier)
+                          .sendMessage(
+                            content,
+                            agentId: selectedAgent.id,
+                            attachmentIds: attachmentIds,
+                          );
                     },
                     sessionName: selectedAgent.sessionName,
                   ),
