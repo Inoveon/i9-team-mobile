@@ -11,6 +11,12 @@
 	</dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Usado para proteger credenciais armazenadas com segurança.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Selecionar imagens da galeria para anexar à mensagem do chat.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Capturar fotos com a câmera para anexar à mensagem do chat.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Salvar imagens recebidas no chat na galeria.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

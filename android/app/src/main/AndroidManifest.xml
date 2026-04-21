@@ -1,4 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permissões para anexar imagens no chat (Onda 5) -->
+    <!-- Android 13+ (API 33+): granular media permission -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <!-- Android 12 e anteriores (API ≤ 32): storage legado -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <!-- Captura de foto pela câmera -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
     <application
         android:label="i9_team_mobile"
         android:name="${applicationName}"
