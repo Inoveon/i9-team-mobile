@@ -440,8 +440,11 @@ class TeamScreen extends ConsumerWidget {
                 SafeArea(
                   top: false,
                   child: MessageInput(
+                    teamId: teamId,
                     onSend: (msg) async {
                       // REST é suficiente — backend resolve via tmux send-keys.
+                      // NOTA (Onda 5 Parte 2): quando o contrato `attachmentIds`
+                      // estiver publicado no backend, passaremos os IDs aqui.
                       try {
                         await ref
                             .read(teamNotifierProvider(teamId).notifier)
@@ -453,14 +456,6 @@ class TeamScreen extends ConsumerWidget {
                       }
                     },
                     sessionName: selectedAgent.sessionName,
-                    onImageUpload: (imageUrl) async {
-                      final notifier = ref
-                          .read(teamNotifierProvider(teamId).notifier);
-                      await notifier.sendMessage(
-                        'Imagem compartilhada: $imageUrl',
-                        agentId: selectedAgent.id,
-                      );
-                    },
                   ),
                 ),
               ],
