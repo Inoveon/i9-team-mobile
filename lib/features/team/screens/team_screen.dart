@@ -8,6 +8,7 @@ import '../../../shared/widgets/toast_stack.dart';
 import '../../notes/screens/notes_list_screen.dart';
 import '../providers/team_provider.dart';
 import '../providers/message_stream_provider.dart';
+import '../providers/optimistic_messages_provider.dart';
 import '../providers/selected_agent_provider.dart';
 import '../widgets/add_agent_dialog.dart';
 import '../widgets/message_input.dart';
@@ -164,6 +165,7 @@ class TeamScreen extends ConsumerWidget {
     );
     if (confirm != true) return;
     ref.read(messageStreamProvider(session).notifier).clear();
+    ref.read(optimisticMessagesProvider(session).notifier).clearAll();
   }
 
   @override
@@ -440,8 +442,10 @@ class TeamScreen extends ConsumerWidget {
                 SafeArea(
                   top: false,
                   child: MessageInput(
+                    teamId: teamId,
                     onSend: (msg) async {
-                      // REST é suficiente — backend resolve via tmux send-keys.
+                      // Fallback legado — usado apenas se onSendWithAttachments
+                      // não existir. Mantido por segurança.
                       try {
                         await ref
                             .read(teamNotifierProvider(teamId).notifier)
@@ -452,15 +456,20 @@ class TeamScreen extends ConsumerWidget {
                             .error('Falha ao enviar: $e');
                       }
                     },
-                    sessionName: selectedAgent.sessionName,
-                    onImageUpload: (imageUrl) async {
-                      final notifier = ref
-                          .read(teamNotifierProvider(teamId).notifier);
-                      await notifier.sendMessage(
-                        'Imagem compartilhada: $imageUrl',
-                        agentId: selectedAgent.id,
-                      );
+                    onSendWithAttachments: (content, attachmentIds) async {
+                      // Onda 5: POST /teams/:id/message com
+                      // { content, agentId, attachmentIds }.
+                      // Propaga MessageSendException para o MessageInput
+                      // exibir o toast adequado por status code.
+                      return await ref
+                          .read(teamNotifierProvider(teamId).notifier)
+                          .sendMessage(
+                            content,
+                            agentId: selectedAgent.id,
+                            attachmentIds: attachmentIds,
+                          );
                     },
+                    sessionName: selectedAgent.sessionName,
                   ),
                 ),
               ],

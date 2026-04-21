@@ -1,5 +1,41 @@
+import 'dart:io' show SocketException;
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
+
+/// Resultado do envio de mensagem — carrega métricas sobre anexos aceitos /
+/// rejeitados pelo backend (Issue backend #3 — 207 Multi-Status).
+class MessageSendResult {
+  const MessageSendResult({
+    required this.accepted,
+    required this.rejected,
+    required this.partial,
+  });
+
+  /// UUIDs de anexos aceitos pelo backend (existiam em UPLOAD_DIR/{teamId}/).
+  final List<String> accepted;
+
+  /// UUIDs de anexos rejeitados (com motivo, tipicamente `not_found`).
+  final List<({String id, String reason})> rejected;
+
+  /// `true` quando pelo menos um anexo foi rejeitado mas o envio seguiu (HTTP 207).
+  final bool partial;
+
+  bool get hasAttachments => accepted.isNotEmpty || rejected.isNotEmpty;
+}
+
+/// Exceção semântica para erros de envio com códigos HTTP mapeados.
+class MessageSendException implements Exception {
+  const MessageSendException({
+    required this.message,
+    required this.statusCode,
+  });
+  final String message;
+  final int? statusCode;
+
+  @override
+  String toString() => message;
+}
 
 class AgentModel {
   const AgentModel({
@@ -104,19 +140,147 @@ class TeamNotifier extends AutoDisposeFamilyAsyncNotifier<TeamDetailModel, Strin
 
   /// Envia mensagem via REST `POST /teams/:id/message`.
   ///
-  /// Substitui a implementação anterior que usava `socket.emit('orchestrator_message',…)`
-  /// — socket.io que **não existe no backend** (só há raw WebSocket em `/ws`).
-  /// O endpoint REST resolve em `sendKeys(sessionName, content)` no backend
-  /// (mesmo efeito do WS `input`, porém com error handling HTTP correto).
+  /// Onda 5 (Issue backend #3): aceita [attachmentIds] — UUIDs retornados por
+  /// `POST /upload/image`. Backend valida existência + ownership (subdir do
+  /// team) e retorna:
+  ///   * 200 — tudo OK
+  ///   * 207 — mensagem aceita, mas alguns anexos foram rejeitados (not_found).
+  ///           `attachmentsRejected[]` vem na resposta.
+  ///   * 400 — payload inválido OU todos os anexos falharam sem texto.
   ///
   /// [agentId] opcional: se omitido, backend entrega ao orquestrador.
-  Future<void> sendMessage(String message, {String? agentId}) async {
+  ///
+  /// Implementa retry único em erro de rede transitório (SocketException /
+  /// timeouts). 4xx/5xx retornam como [MessageSendException].
+  Future<MessageSendResult> sendMessage(
+    String message, {
+    String? agentId,
+    List<String> attachmentIds = const [],
+  }) async {
     final current = state.valueOrNull;
-    if (current == null) return;
+    if (current == null) {
+      throw const MessageSendException(
+        message: 'Team ainda não carregado',
+        statusCode: null,
+      );
+    }
     final dio = await ApiClient.getInstance();
     final data = <String, dynamic>{'content': message};
     if (agentId != null && agentId.isNotEmpty) data['agentId'] = agentId;
-    await dio.post('/teams/${current.id}/message', data: data);
+    if (attachmentIds.isNotEmpty) data['attachmentIds'] = attachmentIds;
+
+    final path = '/teams/${current.id}/message';
+
+    Future<Response<dynamic>> attempt() => dio.post(
+          path,
+          data: data,
+          options: Options(
+            // Aceitar 207 como status válido para processar attachmentsRejected
+            validateStatus: (code) => code != null && code < 400,
+          ),
+        );
+
+    Response<dynamic> response;
+    try {
+      response = await attempt();
+    } on DioException catch (e) {
+      final isTransient = e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.sendTimeout ||
+          e.type == DioExceptionType.connectionError ||
+          e.error is SocketException;
+      if (!isTransient) {
+        throw _mapDioError(e);
+      }
+      // Retry único em erros transitórios
+      try {
+        response = await attempt();
+      } on DioException catch (e2) {
+        throw _mapDioError(e2);
+      }
+    }
+
+    final body = (response.data is Map<String, dynamic>)
+        ? response.data as Map<String, dynamic>
+        : <String, dynamic>{};
+    final used = (body['attachmentsUsed'] as List?)?.cast<String>() ?? const [];
+    final rejectedRaw = (body['attachmentsRejected'] as List?) ?? const [];
+    final rejected = rejectedRaw
+        .whereType<Map>()
+        .map((m) => (
+              id: (m['id'] as String?) ?? '',
+              reason: (m['reason'] as String?) ?? 'unknown',
+            ))
+        .toList();
+
+    return MessageSendResult(
+      accepted: used,
+      rejected: rejected,
+      partial: response.statusCode == 207 || rejected.isNotEmpty,
+    );
+  }
+
+  /// Mapeia [DioException] para [MessageSendException] com mensagem em PT-BR.
+  MessageSendException _mapDioError(DioException e) {
+    final code = e.response?.statusCode;
+    final body = e.response?.data;
+    String? detail;
+    if (body is Map && body['error'] is String) {
+      detail = body['error'] as String;
+    }
+    switch (code) {
+      case 413:
+        return MessageSendException(
+          message: detail ?? 'Imagem muito grande',
+          statusCode: code,
+        );
+      case 415:
+        return MessageSendException(
+          message: detail ?? 'Tipo de imagem não suportado',
+          statusCode: code,
+        );
+      case 429:
+        return MessageSendException(
+          message: detail ?? 'Muitos uploads — aguarde alguns minutos',
+          statusCode: code,
+        );
+      case 401:
+        return MessageSendException(
+          message: 'Sessão expirada — refaça o login',
+          statusCode: code,
+        );
+      case 400:
+        return MessageSendException(
+          message: detail ?? 'Payload inválido',
+          statusCode: code,
+        );
+      case 404:
+        return MessageSendException(
+          message: detail ?? 'Team ou agente não encontrado',
+          statusCode: code,
+        );
+      default:
+        break;
+    }
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.sendTimeout) {
+      return const MessageSendException(
+        message: 'Tempo esgotado — verifique sua conexão',
+        statusCode: null,
+      );
+    }
+    if (e.error is SocketException ||
+        e.type == DioExceptionType.connectionError) {
+      return const MessageSendException(
+        message: 'Sem conexão com o servidor',
+        statusCode: null,
+      );
+    }
+    return MessageSendException(
+      message: detail ?? 'Falha ao enviar: ${e.message ?? e.type.name}',
+      statusCode: code,
+    );
   }
 
   /// Adiciona agente via `POST /teams/:id/agents` + refresh.

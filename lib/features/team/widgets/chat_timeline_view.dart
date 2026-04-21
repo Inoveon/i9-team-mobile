@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/message_event.dart';
 import '../providers/message_stream_provider.dart';
+import '../providers/optimistic_messages_provider.dart';
 import '../widgets/user_bubble.dart';
 import '../widgets/claude_bubble.dart';
 import '../widgets/tool_call_card.dart';
@@ -28,6 +29,7 @@ class ChatTimelineView extends ConsumerStatefulWidget {
 
 class _ChatTimelineViewState extends ConsumerState<ChatTimelineView> {
   final _scrollController = ScrollController();
+  int _lastSeenEventCount = 0;
 
   @override
   void dispose() {
@@ -110,9 +112,26 @@ class _ChatTimelineViewState extends ConsumerState<ChatTimelineView> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(messageStreamProvider(widget.session));
+    final optimistic = ref.watch(optimisticMessagesProvider(widget.session));
 
-    // Auto-scroll quando novos eventos chegam
-    if (state.events.isNotEmpty) _scrollToBottom();
+    // Reconciliação: quando novos user_input aparecem, remove otimistas com
+    // texto correspondente.
+    if (state.events.length > _lastSeenEventCount) {
+      final newEvents = state.events.sublist(_lastSeenEventCount);
+      _lastSeenEventCount = state.events.length;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final notifier =
+            ref.read(optimisticMessagesProvider(widget.session).notifier);
+        for (final e in newEvents) {
+          if (e.type == MessageEventType.userInput && e.text != null) {
+            notifier.clearIfMatches(e.text!);
+          }
+        }
+      });
+    }
+
+    // Auto-scroll quando novos eventos chegam (ou otimistas)
+    if (state.events.isNotEmpty || optimistic.isNotEmpty) _scrollToBottom();
 
     if (!state.connected && state.events.isEmpty) {
       return Center(
@@ -140,7 +159,7 @@ class _ChatTimelineViewState extends ConsumerState<ChatTimelineView> {
       );
     }
 
-    if (state.events.isEmpty) {
+    if (state.events.isEmpty && optimistic.isEmpty) {
       return Center(
         child: Text(
           'Aguardando mensagens...',
@@ -150,6 +169,14 @@ class _ChatTimelineViewState extends ConsumerState<ChatTimelineView> {
     }
 
     final widgets = _buildWidgets(state.events);
+    // Anexa otimistas ao final — aparecerão após a última msg do stream.
+    for (final m in optimistic) {
+      widgets.add(UserBubble(
+        text: m.text,
+        attachments: m.attachments,
+        pending: true,
+      ));
+    }
 
     return ListView.builder(
       controller: _scrollController,

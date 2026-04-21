@@ -38,17 +38,17 @@ class _ImageUploadWidgetState extends ConsumerState<ImageUploadWidget> {
         return;
       }
 
-      // Upload
-      final result = await ImageUploadService.uploadImage(file);
-      if (result != null) {
+      // Upload (pode lançar DioException em erro)
+      try {
+        final result = await ImageUploadService.uploadImage(file);
         setState(() => _lastUpload = result);
         await widget.onUploadSuccess(result);
 
         ref
             .read(toastProvider.notifier)
             .success('Imagem enviada: ${result.filename}');
-      } else {
-        widget.onUploadError?.call('Erro ao fazer upload da imagem');
+      } catch (e) {
+        widget.onUploadError?.call('Erro ao fazer upload da imagem: $e');
         ref
             .read(toastProvider.notifier)
             .error('Erro ao fazer upload da imagem');
