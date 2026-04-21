@@ -8,6 +8,7 @@ import '../../../shared/widgets/toast_stack.dart';
 import '../../notes/screens/notes_list_screen.dart';
 import '../providers/team_provider.dart';
 import '../providers/message_stream_provider.dart';
+import '../providers/optimistic_messages_provider.dart';
 import '../providers/selected_agent_provider.dart';
 import '../widgets/add_agent_dialog.dart';
 import '../widgets/message_input.dart';
@@ -164,6 +165,7 @@ class TeamScreen extends ConsumerWidget {
     );
     if (confirm != true) return;
     ref.read(messageStreamProvider(session).notifier).clear();
+    ref.read(optimisticMessagesProvider(session).notifier).clearAll();
   }
 
   @override
