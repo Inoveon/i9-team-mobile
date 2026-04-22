@@ -65,8 +65,10 @@ class MessageStreamNotifier extends StateNotifier<MessageStreamState> {
     }
   }
 
-  /// Limpa histórico de eventos (ex: ao trocar de agente)
-  void clear() => state = const MessageStreamState();
+  /// Limpa histórico de eventos mantendo o estado de conexão intacto.
+  /// (Ex: botão "Limpar chat" na AppBar — não deve derrubar o WebSocket.)
+  void clear() =>
+      state = MessageStreamState(connected: state.connected, error: state.error);
 
   @override
   void dispose() {

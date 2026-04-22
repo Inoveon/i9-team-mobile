@@ -1,6 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
 
+/// Resumo de agente usado para renderizar tags no TeamCard.
+class TeamAgentSummary {
+  const TeamAgentSummary({
+    required this.name,
+    required this.active,
+  });
+
+  final String name;
+  final bool active;
+}
+
 class TeamModel {
   const TeamModel({
     required this.id,
@@ -9,6 +20,7 @@ class TeamModel {
     required this.agentCount,
     required this.activeAgents,
     required this.status,
+    this.agents = const [],
   });
 
   final String id;
@@ -17,6 +29,7 @@ class TeamModel {
   final int agentCount;
   final int activeAgents;
   final String status;
+  final List<TeamAgentSummary> agents;
 }
 
 class TeamsNotifier extends AutoDisposeAsyncNotifier<List<TeamModel>> {
@@ -79,6 +92,16 @@ class TeamsNotifier extends AutoDisposeAsyncNotifier<List<TeamModel>> {
         }
       }
 
+      // Monta resumos para renderizar tags no card
+      final summaries = agents.map((a) {
+        final m = a as Map;
+        final sn = m['sessionName'] as String?;
+        return TeamAgentSummary(
+          name: (m['name'] as String?) ?? '?',
+          active: sn != null && activeSessions.contains(sn),
+        );
+      }).toList();
+
       return TeamModel(
         id: json['id'] as String,
         name: json['name'] as String,
@@ -86,6 +109,7 @@ class TeamsNotifier extends AutoDisposeAsyncNotifier<List<TeamModel>> {
         agentCount: agents.length,
         activeAgents: activeCount,
         status: teamStatus,
+        agents: summaries,
       );
     }).toList();
   }
@@ -93,6 +117,54 @@ class TeamsNotifier extends AutoDisposeAsyncNotifier<List<TeamModel>> {
   Future<void> refresh() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(_fetchTeams);
+  }
+
+  /// Inicia o team via `POST /teams/:id/start`. Atualiza a lista ao final.
+  /// Lança em caso de erro para o caller exibir toast.
+  Future<void> startTeam(String id) async {
+    final dio = await ApiClient.getInstance();
+    await dio.post('/teams/$id/start');
+    await refresh();
+  }
+
+  /// Para o team via `POST /teams/:id/stop`. Atualiza a lista ao final.
+  Future<void> stopTeam(String id) async {
+    final dio = await ApiClient.getInstance();
+    await dio.post('/teams/$id/stop');
+    await refresh();
+  }
+
+  /// Cria novo team via `POST /teams` + agentes via `POST /teams/:id/agents`.
+  /// Retorna o id do team criado (pra navegação).
+  Future<String> createTeam({
+    required String name,
+    String? description,
+    required List<({String name, String role})> agents,
+  }) async {
+    final dio = await ApiClient.getInstance();
+    final resp = await dio.post<dynamic>('/teams', data: {
+      'name': name,
+      if (description != null && description.isNotEmpty)
+        'description': description,
+    });
+    final body = resp.data as Map<String, dynamic>;
+    final team = body['team'] as Map<String, dynamic>;
+    final id = team['id'] as String;
+    for (final a in agents) {
+      await dio.post('/teams/$id/agents', data: {
+        'name': a.name,
+        'role': a.role,
+      });
+    }
+    await refresh();
+    return id;
+  }
+
+  /// Remove team via `DELETE /teams/:id`. Lança em erro pra caller tratar.
+  Future<void> deleteTeam(String id) async {
+    final dio = await ApiClient.getInstance();
+    await dio.delete('/teams/$id');
+    await refresh();
   }
 }
 

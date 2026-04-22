@@ -133,6 +133,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 child: Text(_feedbackMessage!, style: AppTextStyles.body),
               ),
             ],
+            const SizedBox(height: 32),
+            const Divider(color: AppColors.border, height: 1),
+            const SizedBox(height: 16),
+            Text('Avançado', style: AppTextStyles.heading2),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.code, color: AppColors.neonPurple),
+              title: Text('Editor de teams.json', style: AppTextStyles.body),
+              subtitle: Text(
+                'GET+PUT /teams/config + resync',
+                style: AppTextStyles.label,
+              ),
+              trailing:
+                  const Icon(Icons.chevron_right, color: AppColors.textMuted),
+              onTap: () => context.push('/config'),
+            ),
           ],
         ),
       ),

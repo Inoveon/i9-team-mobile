@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
-import '../../../core/network/ws_client.dart';
 
 class AgentModel {
   const AgentModel({
@@ -61,9 +60,7 @@ class TeamNotifier extends AutoDisposeFamilyAsyncNotifier<TeamDetailModel, Strin
   @override
   Future<TeamDetailModel> build(String arg) async {
     teamId = arg;
-    final detail = await _fetchTeam(teamId);
-    _connectWs(teamId);
-    return detail;
+    return _fetchTeam(teamId);
   }
 
   late final String teamId;
@@ -105,42 +102,44 @@ class TeamNotifier extends AutoDisposeFamilyAsyncNotifier<TeamDetailModel, Strin
     return TeamDetailModel(id: team.id, name: team.name, agents: enrichedAgents);
   }
 
-  void _connectWs(String id) async {
-    final socket = await WsClient.getSocket();
-    socket.emit('join_team', id);
-    socket.on('agent_output', (data) {
-      if (data is Map) {
-        _onAgentOutput(data['agentId'] as String, data['line'] as String);
-      }
-    });
-    socket.on('agent_status', (data) {
-      if (data is Map) {
-        _onAgentStatus(data['agentId'] as String, data['status'] as String);
-      }
-    });
-  }
-
-  void _onAgentOutput(String agentId, String line) {
+  /// Envia mensagem via REST `POST /teams/:id/message`.
+  ///
+  /// Substitui a implementação anterior que usava `socket.emit('orchestrator_message',…)`
+  /// — socket.io que **não existe no backend** (só há raw WebSocket em `/ws`).
+  /// O endpoint REST resolve em `sendKeys(sessionName, content)` no backend
+  /// (mesmo efeito do WS `input`, porém com error handling HTTP correto).
+  ///
+  /// [agentId] opcional: se omitido, backend entrega ao orquestrador.
+  Future<void> sendMessage(String message, {String? agentId}) async {
     final current = state.valueOrNull;
     if (current == null) return;
-    final agents = current.agents.map((a) {
-      if (a.id != agentId) return a;
-      final lines = [...a.outputLines, line];
-      return a.copyWith(outputLines: lines.length > 30 ? lines.sublist(lines.length - 30) : lines);
-    }).toList();
-    state = AsyncData(TeamDetailModel(id: current.id, name: current.name, agents: agents));
+    final dio = await ApiClient.getInstance();
+    final data = <String, dynamic>{'content': message};
+    if (agentId != null && agentId.isNotEmpty) data['agentId'] = agentId;
+    await dio.post('/teams/${current.id}/message', data: data);
   }
 
-  void _onAgentStatus(String agentId, String status) {
+  /// Adiciona agente via `POST /teams/:id/agents` + refresh.
+  Future<void> addAgent({required String name, required String role}) async {
     final current = state.valueOrNull;
     if (current == null) return;
-    final agents = current.agents.map((a) => a.id == agentId ? a.copyWith(status: status) : a).toList();
-    state = AsyncData(TeamDetailModel(id: current.id, name: current.name, agents: agents));
+    final dio = await ApiClient.getInstance();
+    await dio.post('/teams/${current.id}/agents', data: {
+      'name': name,
+      'role': role,
+    });
+    ref.invalidateSelf();
+    await future;
   }
 
-  Future<void> sendMessage(String message) async {
-    final socket = await WsClient.getSocket();
-    socket.emit('orchestrator_message', {'teamId': state.valueOrNull?.id, 'message': message});
+  /// Remove agente via `DELETE /teams/:id/agents/:agentId` + refresh.
+  Future<void> removeAgent(String agentId) async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+    final dio = await ApiClient.getInstance();
+    await dio.delete('/teams/${current.id}/agents/$agentId');
+    ref.invalidateSelf();
+    await future;
   }
 }
 
