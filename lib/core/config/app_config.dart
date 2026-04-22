@@ -21,7 +21,7 @@ class AppConfig {
 
   // Credenciais padrão (espelham o .env do backend)
   static const defaultUser = 'admin';
-  static const defaultPass = 'i9team2024';
+  static const defaultPass = 'i9team';
 
   /// Garante que existe um JWT válido — faz login automático se necessário.
   static Future<String> ensureJwt() async {
