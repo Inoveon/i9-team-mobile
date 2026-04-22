@@ -6,3 +6,8 @@ build/
 pubspec.lock
 *.g.dart
 temp/
+.idea/
+.metadata
+*.iml
+macos/Podfile.lock
+i9team_mobile_home.png
